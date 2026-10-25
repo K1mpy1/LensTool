@@ -37,8 +37,8 @@ public sealed class AppSettings
     /// <summary>Target for text that is already in <see cref="TargetLanguage"/>.</summary>
     public string FallbackTargetLanguage { get; init; } = "EN-US";
 
-    /// <summary>Translation engines in the order they are tried ("Google", "DeepL").</summary>
-    public IReadOnlyList<string> TranslationEngines { get; init; } = ["Google", "DeepL"];
+    /// <summary>Translation engines in the order they are tried ("Google", "DeepL", "Offline").</summary>
+    public IReadOnlyList<string> TranslationEngines { get; init; } = ["Google", "DeepL", "Offline"];
 
     /// <summary>Free monthly character limit per engine (Google Basic and DeepL API Free: 500 000).</summary>
     public long FreeCharactersPerMonth { get; init; } = 500_000;

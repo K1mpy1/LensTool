@@ -7,6 +7,7 @@ using LensTool.Ocr;
 using System.Net.Http;
 using LensTool.Settings;
 using LensTool.Translation;
+using LensTool.Translation.Offline;
 using LensTool.UI;
 
 namespace LensTool;
@@ -19,6 +20,9 @@ public partial class App : Application
     private readonly RegionSelector _selector = new();
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
     private readonly UsageTracker _usage = new(UsageTracker.DefaultFilePath);
+    private readonly HttpClient _modelHttp = new() { Timeout = Timeout.InfiniteTimeSpan };
+    private readonly ModelStore _modelStore;
+    private readonly OfflineTranslator _offline;
     private readonly DeepLTranslator _deepl;
     private readonly Dictionary<string, (ITranslator Engine, Func<string?> Key, string KeyVariable)> _engines;
     private readonly TranslationService _translation;
@@ -34,13 +38,26 @@ public partial class App : Application
     {
         _deepl = new DeepLTranslator(_http, DeepLTranslator.ReadApiKeyFromEnvironment);
         var google = new GoogleCloudTranslator(_http, GoogleCloudTranslator.ReadApiKeyFromEnvironment);
+        // Model downloads are large, so they get their own client without the 15 s API timeout.
+        _modelStore = new ModelStore(ModelStore.DefaultFolder, _modelHttp);
+        _modelStore.DownloadStarted += model => Dispatcher.BeginInvoke(() => _tray?.ShowBalloon(
+            "Скачиваю модель офлайн-перевода",
+            $"{model.Source.ToUpperInvariant()} → {model.Target.ToUpperInvariant()}, {model.TotalSize / 1048576.0:0} МБ. Это нужно один раз."));
+        _modelStore.DownloadFinished += (model, error) => Dispatcher.BeginInvoke(() =>
+        {
+            if (error is null)
+                _tray?.ShowBalloon("Модель офлайн-перевода готова", "Дальше перевод работает без интернета.");
+        });
+        _offline = new OfflineTranslator(_modelStore);
+
         _engines = new(StringComparer.OrdinalIgnoreCase)
         {
             [google.Name] = (google, GoogleCloudTranslator.ReadApiKeyFromEnvironment, GoogleCloudTranslator.ApiKeyVariable),
             [_deepl.Name] = (_deepl, DeepLTranslator.ReadApiKeyFromEnvironment, DeepLTranslator.ApiKeyVariable),
+            [_offline.Name] = (_offline, () => "", ""),
         };
 
-        // Engines are tried in the order from settings: Google first, DeepL when Google is unavailable or near its limit.
+        // Engines are tried in the order from settings: Google, then DeepL, then the offline model as the last resort.
         var chain = new FallbackTranslator(
             _settings.TranslationEngines.Select(name => _engines[name].Engine).ToList(),
             _usage, _settings.FreeCharactersPerMonth, _settings.SwitchEngineAtShare);
@@ -50,7 +67,11 @@ public partial class App : Application
     /// <summary>"Google: 12 345 / 500 000 (2,5%)" or a hint that the key is missing.</summary>
     private string UsageLine(string engine)
     {
-        var (_, key, variable) = _engines[engine];
+        var (translator, key, variable) = _engines[engine];
+        if (!translator.IsMetered)
+            return OpusModel.All.All(_modelStore.IsInstalled)
+                ? $"{engine}: без лимита, модели скачаны"
+                : $"{engine}: без лимита, модель скачается при первом переводе";
         if (key() is null)
             return $"{engine}: нет ключа ({variable})";
 
@@ -60,7 +81,9 @@ public partial class App : Application
     }
 
     private void UpdateUsageDisplay() =>
-        _tray?.SetTooltip("LensTool — " + string.Join(", ", _settings.TranslationEngines.Select(e => $"{e} {_usage.Used(e):N0}")));
+        _tray?.SetTooltip("LensTool — " + string.Join(", ", _settings.TranslationEngines
+            .Where(e => _engines[e].Engine.IsMetered)
+            .Select(e => $"{e} {_usage.Used(e):N0}")));
 
     /// <summary>DeepL reports its own count for the billing period; it overrides the local estimate.</summary>
     private async Task SyncDeepLUsageAsync()
@@ -247,6 +270,8 @@ public partial class App : Application
         _hotkeys?.Dispose();
         _tray?.Dispose();
         _http.Dispose();
+        _offline.Dispose();
+        _modelHttp.Dispose();
         _secondInstanceWait?.Unregister(null);
         _secondInstanceEvent?.Dispose();
         if (_instanceMutex is not null)

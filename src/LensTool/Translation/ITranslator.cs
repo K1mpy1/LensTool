@@ -6,6 +6,9 @@ public interface ITranslator
     /// <summary>Engine name for logs and settings.</summary>
     string Name { get; }
 
+    /// <summary>The engine has a monthly character quota; unmetered engines (offline) are never skipped for usage.</summary>
+    bool IsMetered => true;
+
     /// <param name="targetLanguage">Target language code, e.g. "RU" or "EN-US".</param>
     /// <param name="sourceLanguage">Source language code; null = auto-detect.</param>
     Task<TranslationResult> TranslateAsync(string text, string targetLanguage, string? sourceLanguage = null,

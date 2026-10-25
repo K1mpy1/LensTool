@@ -54,6 +54,18 @@ public class FallbackTranslatorTests : IDisposable
     }
 
     [Fact]
+    public async Task UnmeteredEngineIsNeverSkippedForUsage()
+    {
+        var offline = new StubTranslator("Offline", metered: false);
+        var usage = new UsageTracker(_usageFile);
+        usage.Add("Offline", 5000);
+
+        var result = await Chain(usage, offline).TranslateAsync("hello", "RU");
+
+        Assert.Equal("Offline", result.Engine);
+    }
+
+    [Fact]
     public async Task AllEnginesFailingGivesCombinedMessage()
     {
         var chain = Chain(new UsageTracker(_usageFile),
@@ -69,11 +81,13 @@ public class FallbackTranslatorTests : IDisposable
     private static FallbackTranslator Chain(UsageTracker usage, params ITranslator[] engines) =>
         new(engines, usage, monthlyFreeCharacters: 1000, switchAtShare: 0.9);
 
-    private sealed class StubTranslator(string name, Exception? error = null) : ITranslator
+    private sealed class StubTranslator(string name, Exception? error = null, bool metered = true) : ITranslator
     {
         public int Calls { get; private set; }
 
         public string Name => name;
+
+        public bool IsMetered => metered;
 
         public Task<TranslationResult> TranslateAsync(string text, string targetLanguage, string? sourceLanguage = null,
             CancellationToken cancellationToken = default)

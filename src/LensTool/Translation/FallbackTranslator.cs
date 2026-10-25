@@ -19,7 +19,7 @@ public sealed class FallbackTranslator(
         foreach (var engine in engines)
         {
             long used = usage.Used(engine.Name);
-            if (used + text.Length > Budget)
+            if (engine.IsMetered && used + text.Length > Budget)
             {
                 AppLog.Info($"{engine.Name}: израсходовано {used} из {monthlyFreeCharacters} символов за месяц, пропускаю");
                 errors.Add($"{engine.Name}: месячный бесплатный лимит почти исчерпан ({used:N0} из {monthlyFreeCharacters:N0}).");

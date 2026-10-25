@@ -28,6 +28,9 @@ public sealed class AppSettings
 
     public HotkeyGesture ImageSearchHotkey { get; init; } = new(ModifierKeys.Control | ModifierKeys.Alt, Key.S);
 
+    /// <summary>OCR language (BCP-47, e.g. "ru" or "en-US"); null = Windows profile languages.</summary>
+    public string? OcrLanguage { get; init; }
+
     /// <summary>Folder where captured regions are saved.</summary>
     public string CaptureFolder { get; init; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "LensTool");

@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using LensTool.Capture;
+using LensTool.Ocr;
 using LensTool.Settings;
 using LensTool.UI;
 
@@ -20,6 +21,7 @@ public partial class App : Application
     private RegisteredWaitHandle? _secondInstanceWait;
     private TrayIcon? _tray;
     private GlobalHotkeys? _hotkeys;
+    private IOcrEngine? _ocr;
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -93,17 +95,55 @@ public partial class App : Application
                 return;
             }
 
-            // For now (stages 1–2) just save the capture. OCR/translation and search come in later stages.
+            if (mode == CaptureMode.Translate)
+            {
+                await RecognizeAsync(result);
+                return;
+            }
+
+            // Image search is stage 6; for now just save the capture.
             string path = CaptureStorage.SavePng(result.Image, _settings.CaptureFolder, mode);
             AppLog.Info($"Снимок сохранён: {path}");
             _tray?.ShowBalloon("Снимок сохранён", $"{result.Bounds.Width}×{result.Bounds.Height} px\n{path}",
                 onClick: () => Process.Start("explorer.exe", $"/select,\"{path}\""));
+        }
+        catch (OcrUnavailableException ex)
+        {
+            AppLog.Error("OCR недоступен", ex);
+            _tray?.ShowBalloon("Распознавание недоступно", ex.Message, isError: true);
         }
         catch (Exception ex)
         {
             AppLog.Error("Ошибка захвата", ex);
             _tray?.ShowBalloon("Ошибка захвата", ex.Message, isError: true);
         }
+    }
+
+    private async Task RecognizeAsync(CaptureResult capture)
+    {
+        // The engine is created on first use, so the app still starts when no OCR languages are installed.
+        _ocr ??= new WindowsOcrEngine(_settings.OcrLanguage);
+        var ocr = await _ocr.RecognizeAsync(capture.Image);
+        if (ocr.IsEmpty)
+        {
+            _tray?.ShowBalloon("Текст не найден", "В выделенной области не удалось распознать текст.");
+            return;
+        }
+
+        // Until the translation overlay exists (stage 5), hand the text over via the clipboard.
+        string text = ocr.Text;
+        try
+        {
+            Clipboard.SetText(text);
+        }
+        catch (System.Runtime.InteropServices.ExternalException ex) // clipboard is locked by another app
+        {
+            AppLog.Error("Не удалось записать в буфер обмена", ex);
+        }
+
+        const int previewLength = 200;
+        _tray?.ShowBalloon($"Распознано ({ocr.Language}) — скопировано",
+            text.Length > previewLength ? text[..previewLength] + "…" : text);
     }
 
     private void OpenCaptureFolder()

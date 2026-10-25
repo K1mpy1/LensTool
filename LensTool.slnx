@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/LensTool/LensTool.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LensTool.Tests/LensTool.Tests.csproj" />
+  </Folder>
 </Solution>

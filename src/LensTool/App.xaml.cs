@@ -33,6 +33,7 @@ public partial class App : Application
     private TrayIcon? _tray;
     private GlobalHotkeys? _hotkeys;
     private IOcrEngine? _ocr;
+    private TranslationPopup? _popup;
 
     public App()
     {
@@ -40,9 +41,13 @@ public partial class App : Application
         var google = new GoogleCloudTranslator(_http, GoogleCloudTranslator.ReadApiKeyFromEnvironment);
         // Model downloads are large, so they get their own client without the 15 s API timeout.
         _modelStore = new ModelStore(ModelStore.DefaultFolder, _modelHttp);
-        _modelStore.DownloadStarted += model => Dispatcher.BeginInvoke(() => _tray?.ShowBalloon(
-            "Скачиваю модель офлайн-перевода",
-            $"{model.Source.ToUpperInvariant()} → {model.Target.ToUpperInvariant()}, {model.TotalSize / 1048576.0:0} МБ. Это нужно один раз."));
+        _modelStore.DownloadStarted += model => Dispatcher.BeginInvoke(() =>
+        {
+            string details = $"{model.Source.ToUpperInvariant()} → {model.Target.ToUpperInvariant()}, {model.TotalSize / 1048576.0:0} МБ";
+            _tray?.ShowBalloon("Скачиваю модель офлайн-перевода", details + ". Это нужно один раз.");
+            if (_popup is { IsClosed: false } popup)
+                popup.ShowStatus($"Скачиваю модель офлайн-перевода ({details})…");
+        });
         _modelStore.DownloadFinished += (model, error) => Dispatcher.BeginInvoke(() =>
         {
             if (error is null)
@@ -69,9 +74,13 @@ public partial class App : Application
     {
         var (translator, key, variable) = _engines[engine];
         if (!translator.IsMetered)
-            return OpusModel.All.All(_modelStore.IsInstalled)
+        {
+            var missing = OpusModel.All.Where(m => !_modelStore.IsInstalled(m))
+                .Select(m => $"{m.Source}→{m.Target}".ToUpperInvariant()).ToList();
+            return missing.Count == 0
                 ? $"{engine}: без лимита, модели скачаны"
-                : $"{engine}: без лимита, модель скачается при первом переводе";
+                : $"{engine}: без лимита; {string.Join(", ", missing)} скачается при первом переводе";
+        }
         if (key() is null)
             return $"{engine}: нет ключа ({variable})";
 
@@ -163,6 +172,10 @@ public partial class App : Application
             return;
         }
 
+        // The previous card must not end up in the new screenshot.
+        _popup?.Close();
+        _popup = null;
+
         try
         {
             string hint = mode == CaptureMode.Translate
@@ -202,55 +215,61 @@ public partial class App : Application
 
     private async Task TranslateCaptureAsync(CaptureResult capture)
     {
-        // The engine is created on first use, so the app still starts when no OCR languages are installed.
-        _ocr ??= new WindowsOcrEngine(_settings.OcrLanguage);
-        var ocr = await _ocr.RecognizeAsync(capture.Image);
-        if (ocr.IsEmpty)
-        {
-            _tray?.ShowBalloon("Текст не найден", "В выделенной области не удалось распознать текст.");
-            return;
-        }
+        var popup = new TranslationPopup(capture.Bounds, capture.Monitor);
+        _popup = popup;
+        // Closing the card cancels recognition/translation that is still running.
+        using var cancel = new CancellationTokenSource();
+        EventHandler onClosed = (_, _) => cancel.Cancel();
+        popup.Closed += onClosed;
+        popup.ShowStatus("Распознаю текст…");
+        popup.Show();
+        popup.Activate();
 
-        string text = OcrTextLayout.ToParagraphs(ocr.Lines);
-        TranslationResult translation;
+        string? text = null;
         try
         {
-            translation = await _translation.TranslateAsync(text);
+            // The engine is created on first use, so the app still starts when no OCR languages are installed.
+            _ocr ??= new WindowsOcrEngine(_settings.OcrLanguage);
+            var ocr = await _ocr.RecognizeAsync(capture.Image, cancel.Token);
+            if (ocr.IsEmpty)
+            {
+                popup.ShowError("Текст не найден", "В выделенной области не удалось распознать текст.");
+                return;
+            }
+
+            text = OcrTextLayout.ToParagraphs(ocr.Lines);
+            popup.ShowStatus("Перевожу…", text);
+            var translation = await _translation.TranslateAsync(text, cancel.Token);
+
+            string engine = translation.Engine ?? "";
+            popup.ShowTranslation(
+                $"{translation.DetectedSourceLanguage} → {translation.TargetLanguage}  ·  {engine}",
+                translation.Text, text, UsageLine(engine));
+            UpdateUsageDisplay();
+            if (engine == _deepl.Name)
+                _ = SyncDeepLUsageAsync();
+        }
+        catch (OperationCanceledException) when (cancel.IsCancellationRequested)
+        {
+            AppLog.Info("Перевод отменён: окно закрыто");
+        }
+        catch (OcrUnavailableException ex)
+        {
+            AppLog.Error("OCR недоступен", ex);
+            popup.ShowError("Распознавание недоступно", ex.Message);
         }
         catch (TranslationException ex)
         {
-            // Recognized text is still useful without a translation.
+            // Recognized text is still useful without a translation: it stays in the card for copying.
             AppLog.Error("Перевод не удался", ex);
-            CopyToClipboard(text);
-            _tray?.ShowBalloon("Перевод недоступен — скопирован исходный текст", ex.Message, isError: true);
-            return;
+            popup.ShowError("Перевод недоступен", ex.Message, text);
         }
-
-        // Until the translation overlay exists (stage 5), hand the result over via the clipboard.
-        CopyToClipboard(translation.Text);
-        UpdateUsageDisplay();
-        string engine = translation.Engine ?? "";
-        _tray?.ShowBalloon(
-            $"Перевод {translation.DetectedSourceLanguage} → {translation.TargetLanguage} ({engine}) — скопирован",
-            Preview(translation.Text, 160) + Environment.NewLine + UsageLine(engine));
-        if (engine == _deepl.Name)
-            _ = SyncDeepLUsageAsync();
-    }
-
-    private static void CopyToClipboard(string text)
-    {
-        try
+        finally
         {
-            Clipboard.SetText(text);
-        }
-        catch (System.Runtime.InteropServices.ExternalException ex) // clipboard is locked by another app
-        {
-            AppLog.Error("Не удалось записать в буфер обмена", ex);
+            // The token source is disposed when this method returns; a later close must not touch it.
+            popup.Closed -= onClosed;
         }
     }
-
-    private static string Preview(string text, int maxLength = 200) =>
-        text.Length > maxLength ? text[..maxLength] + "…" : text;
 
     private void OpenCaptureFolder()
     {

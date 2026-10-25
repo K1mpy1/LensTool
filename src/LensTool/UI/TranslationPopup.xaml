@@ -1,0 +1,95 @@
+<Window x:Class="LensTool.UI.TranslationPopup"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="LensTool — перевод"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        SizeToContent="Height"
+        Width="420"
+        UseLayoutRounding="True"
+        FontFamily="Segoe UI">
+    <Window.Resources>
+        <!-- Flat text button for the header toolbar. -->
+        <Style x:Key="ToolButton" TargetType="Button">
+            <Setter Property="Foreground" Value="#D0FFFFFF" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Padding" Value="8,3" />
+            <Setter Property="Margin" Value="2,0,0,0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Bg" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#26FFFFFF" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="#40FFFFFF" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.35" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <!-- Outer margin leaves room for the shadow; the window itself is transparent. -->
+    <Border Margin="8"
+            CornerRadius="8"
+            Background="#F51F2023"
+            BorderBrush="#33FFFFFF"
+            BorderThickness="1">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.45" />
+        </Border.Effect>
+
+        <DockPanel Margin="12,8,10,10">
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button x:Name="ToggleButton" Style="{StaticResource ToolButton}" Content="Оригинал"
+                            ToolTip="Показать распознанный текст" Click="OnToggleClick" />
+                    <Button x:Name="CopyButton" Style="{StaticResource ToolButton}" Content="Копировать"
+                            ToolTip="Скопировать (Ctrl+C)" Click="OnCopyClick" />
+                    <Button Style="{StaticResource ToolButton}" Content="✕" ToolTip="Закрыть (Esc)" Click="OnCloseClick" />
+                </StackPanel>
+                <TextBlock x:Name="HeaderText"
+                           Foreground="#99FFFFFF"
+                           FontSize="12"
+                           VerticalAlignment="Center"
+                           TextTrimming="CharacterEllipsis" />
+            </DockPanel>
+
+            <TextBlock x:Name="FooterText"
+                       DockPanel.Dock="Bottom"
+                       Margin="0,6,0,0"
+                       Foreground="#73FFFFFF"
+                       FontSize="11"
+                       TextTrimming="CharacterEllipsis"
+                       Visibility="Collapsed" />
+
+            <ScrollViewer x:Name="BodyScroll" VerticalScrollBarVisibility="Auto">
+                <TextBox x:Name="BodyText"
+                         IsReadOnly="True"
+                         TextWrapping="Wrap"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Padding="0"
+                         Foreground="White"
+                         CaretBrush="White"
+                         SelectionBrush="#6638BDF8"
+                         FontSize="15" />
+            </ScrollViewer>
+        </DockPanel>
+    </Border>
+</Window>

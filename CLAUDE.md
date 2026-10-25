@@ -61,7 +61,7 @@
 
 \- Движки: Google (приоритет) → DeepL → Offline (FallbackTranslator). Бесплатно у каждого 500 000 символов/мес; при 90% лимита движок пропускается, чтобы не уйти в платное. Расход — UsageTracker (%LOCALAPPDATA%\LensTool\usage.json, по календарным месяцам); для DeepL берётся точное значение из /v2/usage. Счётчик виден в меню трея, подсказке значка и уведомлении после перевода
 
-- Офлайн-перевод (OfflineTranslator): Opus-MT (Helsinki-NLP, CC-BY 4.0), ONNX int8 от Xenova, только EN ↔ RU, язык определяется по алфавиту. Модель (~109 МБ на направление) скачивается при первом переводе в %LOCALAPPDATA%enstoolmodels (modelstore): ревизия репозитория и sha-256 каждого файла зафиксированы в opusmodel. Инференс — onnx runtime, токенизация — microsoft.ml.tokenizers (sentencepiece), beam search 4 без kv-кэша; текст режется на предложения. Лимита нет, в счётчик не входит
+\- Офлайн-перевод (OfflineTranslator): Opus-MT (Helsinki-NLP, CC-BY 4.0), ONNX int8 от Xenova, только EN ↔ RU, язык определяется по алфавиту. Модель (~109 МБ на направление) скачивается при первом переводе в %LOCALAPPDATA%\LensTool\Models (ModelStore); ревизия репозитория и SHA-256 каждого файла зафиксированы в OpusModel. Инференс — ONNX Runtime (MarianModel), токенизация — Microsoft.ML.Tokenizers (SentencePiece), beam search 4 без KV-кэша; текст режется на предложения. Лимита нет, в счётчик не входит
 
 
 

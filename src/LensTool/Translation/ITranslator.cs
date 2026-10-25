@@ -13,7 +13,8 @@ public interface ITranslator
 }
 
 /// <param name="DetectedSourceLanguage">Source language as reported by the engine, upper case (e.g. "EN").</param>
-public sealed record TranslationResult(string Text, string DetectedSourceLanguage, string TargetLanguage);
+/// <param name="Engine">Engine that produced the translation; set by <see cref="FallbackTranslator"/>.</param>
+public sealed record TranslationResult(string Text, string DetectedSourceLanguage, string TargetLanguage, string? Engine = null);
 
 /// <summary>Translation failed; <see cref="Exception.Message"/> is shown to the user.</summary>
 public class TranslationException(string message, Exception? inner = null) : Exception(message, inner);

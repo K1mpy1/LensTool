@@ -15,15 +15,42 @@ public sealed class DeepLTranslator(HttpClient http, Func<string?> apiKeyProvide
 {
     public const string ApiKeyVariable = "DEEPL_API_KEY";
 
-    private static readonly Uri FreeEndpoint = new("https://api-free.deepl.com/v2/translate");
-    private static readonly Uri ProEndpoint = new("https://api.deepl.com/v2/translate");
+    private static readonly Uri FreeHost = new("https://api-free.deepl.com/");
+    private static readonly Uri ProHost = new("https://api.deepl.com/");
 
     public string Name => "DeepL";
 
-    /// <summary>Reads the key from the process environment, then from the user's persisted variables (setx).</summary>
-    public static string? ReadApiKeyFromEnvironment() =>
-        NullIfBlank(Environment.GetEnvironmentVariable(ApiKeyVariable))
-        ?? NullIfBlank(Environment.GetEnvironmentVariable(ApiKeyVariable, EnvironmentVariableTarget.User));
+    public static string? ReadApiKeyFromEnvironment() => ApiKeys.Read(ApiKeyVariable);
+
+    /// <summary>
+    /// Characters used in the current DeepL billing period, as reported by DeepL itself
+    /// (the period starts on the subscription date, not on the 1st). Null without a key or on any error.
+    /// </summary>
+    public async Task<DeepLUsage?> GetUsageAsync(CancellationToken cancellationToken = default)
+    {
+        if (apiKeyProvider()?.Trim() is not { Length: > 0 } apiKey)
+            return null;
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, new Uri(HostFor(apiKey), "v2/usage"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("DeepL-Auth-Key", apiKey);
+        try
+        {
+            using var response = await http.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                AppLog.Info($"DeepL usage: HTTP {(int)response.StatusCode}");
+                return null;
+            }
+            return await response.Content.ReadFromJsonAsync<DeepLUsage>(cancellationToken);
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            AppLog.Info($"DeepL usage недоступен: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static Uri HostFor(string apiKey) => apiKey.EndsWith(":fx", StringComparison.Ordinal) ? FreeHost : ProHost;
 
     public async Task<TranslationResult> TranslateAsync(string text, string targetLanguage, string? sourceLanguage = null,
         CancellationToken cancellationToken = default)
@@ -33,7 +60,7 @@ public sealed class DeepLTranslator(HttpClient http, Func<string?> apiKeyProvide
             : throw new TranslatorUnavailableException(
                 $"Не задан ключ DeepL. Укажите его в переменной окружения {ApiKeyVariable} и повторите.");
 
-        var request = new HttpRequestMessage(HttpMethod.Post, apiKey.EndsWith(":fx", StringComparison.Ordinal) ? FreeEndpoint : ProEndpoint)
+        var request = new HttpRequestMessage(HttpMethod.Post, new Uri(HostFor(apiKey), "v2/translate"))
         {
             Content = JsonContent.Create(new DeepLRequest([text], targetLanguage.ToUpperInvariant(), sourceLanguage?.ToUpperInvariant())),
         };
@@ -79,8 +106,6 @@ public sealed class DeepLTranslator(HttpClient http, Func<string?> apiKeyProvide
         _ => $"Ошибка DeepL: HTTP {(int)status}.",
     };
 
-    private static string? NullIfBlank(string? s) => string.IsNullOrWhiteSpace(s) ? null : s;
-
     private sealed record DeepLRequest(
         [property: JsonPropertyName("text")] string[] Text,
         [property: JsonPropertyName("target_lang")] string TargetLang,
@@ -93,3 +118,7 @@ public sealed class DeepLTranslator(HttpClient http, Func<string?> apiKeyProvide
         [property: JsonPropertyName("detected_source_language")] string DetectedSourceLanguage,
         [property: JsonPropertyName("text")] string Text);
 }
+
+public sealed record DeepLUsage(
+    [property: JsonPropertyName("character_count")] long CharacterCount,
+    [property: JsonPropertyName("character_limit")] long CharacterLimit);

@@ -37,6 +37,15 @@ public sealed class AppSettings
     /// <summary>Target for text that is already in <see cref="TargetLanguage"/>.</summary>
     public string FallbackTargetLanguage { get; init; } = "EN-US";
 
+    /// <summary>Translation engines in the order they are tried ("Google", "DeepL").</summary>
+    public IReadOnlyList<string> TranslationEngines { get; init; } = ["Google", "DeepL"];
+
+    /// <summary>Free monthly character limit per engine (Google Basic and DeepL API Free: 500 000).</summary>
+    public long FreeCharactersPerMonth { get; init; } = 500_000;
+
+    /// <summary>Share of the free limit after which the next engine is used, to stay out of paid usage.</summary>
+    public double SwitchEngineAtShare { get; init; } = 0.9;
+
     /// <summary>Folder where captured regions are saved.</summary>
     public string CaptureFolder { get; init; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "LensTool");

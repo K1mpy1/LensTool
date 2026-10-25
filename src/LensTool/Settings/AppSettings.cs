@@ -24,9 +24,9 @@ public sealed record HotkeyGesture(ModifierKeys Modifiers, Key Key)
 /// </summary>
 public sealed class AppSettings
 {
-    public HotkeyGesture TranslateHotkey { get; init; } = new(ModifierKeys.Control | ModifierKeys.Shift, Key.T);
+    public HotkeyGesture TranslateHotkey { get; init; } = new(ModifierKeys.Control | ModifierKeys.Alt, Key.T);
 
-    public HotkeyGesture ImageSearchHotkey { get; init; } = new(ModifierKeys.Control | ModifierKeys.Shift, Key.S);
+    public HotkeyGesture ImageSearchHotkey { get; init; } = new(ModifierKeys.Control | ModifierKeys.Alt, Key.S);
 
     /// <summary>Folder where captured regions are saved.</summary>
     public string CaptureFolder { get; init; } = Path.Combine(

@@ -70,25 +70,25 @@ public sealed class RegionSelector
 
     public void Cancel() => _completion?.TrySetResult(null);
 
-    private void OnDragStarted()
+    private void OnDragStarted((int X, int Y) position)
     {
-        _dragStart = GetCursor();
+        _dragStart = position;
         UpdateWindows(null);
     }
 
-    private void OnDragMoved()
+    private void OnDragMoved((int X, int Y) position)
     {
         if (_dragStart is null)
             return;
-        UpdateWindows(CurrentRect());
+        UpdateWindows(RectTo(position));
     }
 
-    private void OnDragEnded()
+    private void OnDragEnded((int X, int Y) position)
     {
         if (_dragStart is null || _snapshot is null)
             return;
 
-        var rect = CurrentRect().Intersect(_snapshot.Bounds);
+        var rect = RectTo(position).Intersect(_snapshot.Bounds);
         _dragStart = null;
         if (rect.Width < MinSize || rect.Height < MinSize)
         {
@@ -102,11 +102,10 @@ public sealed class RegionSelector
         _completion?.TrySetResult(new CaptureResult(rect, _snapshot.Crop(rect), monitor));
     }
 
-    private PixelRect CurrentRect()
+    private PixelRect RectTo((int X, int Y) end)
     {
         var start = _dragStart!.Value;
-        var cur = GetCursor();
-        return PixelRect.FromPoints(start.X, start.Y, cur.X, cur.Y);
+        return PixelRect.FromPoints(start.X, start.Y, end.X, end.Y);
     }
 
     private void UpdateWindows(PixelRect? rect)
@@ -120,7 +119,7 @@ public sealed class RegionSelector
         ?? _snapshot.Monitors.FirstOrDefault(m => m.IsPrimary)
         ?? _snapshot.Monitors[0];
 
-    /// <summary>Cursor position in physical pixels: a single coordinate system for all monitors.</summary>
+    /// <summary>Cursor position in physical pixels (only used to pick the monitor for the hint).</summary>
     private static (int X, int Y) GetCursor()
     {
         NativeMethods.GetCursorPos(out var p);

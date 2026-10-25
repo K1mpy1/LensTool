@@ -19,9 +19,10 @@ public partial class SelectionOverlayWindow : Window
     private bool _closingByOwner;
     private PixelRect? _selection;
 
-    public event Action? DragStarted;
-    public event Action? DragMoved;
-    public event Action? DragEnded;
+    // The argument is the mouse position taken from the event itself, in physical screen pixels.
+    public event Action<(int X, int Y)>? DragStarted;
+    public event Action<(int X, int Y)>? DragMoved;
+    public event Action<(int X, int Y)>? DragEnded;
     public event Action? Cancelled;
 
     public SelectionOverlayWindow(MonitorInfo monitor, BitmapSource monitorImage, string? hint)
@@ -125,25 +126,36 @@ public partial class SelectionOverlayWindow : Window
         }
     }
 
+    /// <summary>
+    /// Event position in physical pixels. With mouse capture the point may lie outside the window
+    /// (on another monitor); PointToScreen converts it back with the same DPI it was received with.
+    /// </summary>
+    private (int X, int Y) ToScreen(MouseEventArgs e)
+    {
+        var p = PointToScreen(e.GetPosition(this));
+        return ((int)Math.Round(p.X), (int)Math.Round(p.Y));
+    }
+
     protected override void OnMouseLeftButtonDown(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonDown(e);
         CaptureMouse();
-        DragStarted?.Invoke();
+        DragStarted?.Invoke(ToScreen(e));
     }
 
     protected override void OnMouseMove(MouseEventArgs e)
     {
         base.OnMouseMove(e);
         if (e.LeftButton == MouseButtonState.Pressed)
-            DragMoved?.Invoke();
+            DragMoved?.Invoke(ToScreen(e));
     }
 
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
         base.OnMouseLeftButtonUp(e);
+        var position = ToScreen(e);
         ReleaseMouseCapture();
-        DragEnded?.Invoke();
+        DragEnded?.Invoke(position);
     }
 
     protected override void OnMouseRightButtonUp(MouseButtonEventArgs e)

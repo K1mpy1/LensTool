@@ -40,6 +40,27 @@ public class FallbackTranslatorTests : IDisposable
     }
 
     [Fact]
+    public async Task UnexpectedErrorAlsoFallsThrough()
+    {
+        var broken = new StubTranslator("Google", new InvalidOperationException("bad response"));
+        var deepl = new StubTranslator("DeepL");
+
+        var result = await Chain(new UsageTracker(_usageFile), broken, deepl).TranslateAsync("hello", "RU");
+
+        Assert.Equal("DeepL", result.Engine);
+    }
+
+    [Fact]
+    public async Task UnexpectedErrorInLastEngineBecomesTranslationException()
+    {
+        var chain = Chain(new UsageTracker(_usageFile), new StubTranslator("Offline", new InvalidOperationException("onnx failed")));
+
+        var ex = await Assert.ThrowsAsync<TranslationException>(() => chain.TranslateAsync("hello", "RU"));
+
+        Assert.Contains("onnx failed", ex.Message);
+    }
+
+    [Fact]
     public async Task EngineNearLimitIsSkipped()
     {
         var google = new StubTranslator("Google");

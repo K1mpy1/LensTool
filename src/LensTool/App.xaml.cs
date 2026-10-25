@@ -89,14 +89,23 @@ public partial class App : Application
         return $"{engine}: {used:N0} / {limit:N0} ({100.0 * used / limit:0.#}%)";
     }
 
-    private void UpdateUsageDisplay() =>
-        _tray?.SetTooltip("LensTool — " + string.Join(", ", _settings.TranslationEngines
+    private void UpdateUsageDisplay()
+    {
+        var metered = _settings.TranslationEngines
             .Where(e => _engines[e].Engine.IsMetered)
-            .Select(e => $"{e} {_usage.Used(e):N0}")));
+            .Select(e => $"{e} {_usage.Used(e):N0}")
+            .ToList();
+        _tray?.SetTooltip(metered.Count == 0 ? "LensTool" : "LensTool — " + string.Join(", ", metered));
+    }
+
+    private bool IsEnabled(ITranslator engine) =>
+        _settings.TranslationEngines.Contains(engine.Name, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>DeepL reports its own count for the billing period; it overrides the local estimate.</summary>
     private async Task SyncDeepLUsageAsync()
     {
+        if (!IsEnabled(_deepl))
+            return;
         var usage = await _deepl.GetUsageAsync();
         if (usage is null)
             return;
@@ -135,7 +144,7 @@ public partial class App : Application
         _tray.AddMenuItem("Перевести область", () => StartCapture(CaptureMode.Translate), _settings.TranslateHotkey.ToString(), bold: true);
         _tray.AddMenuItem("Поиск по картинке", () => StartCapture(CaptureMode.ImageSearch), _settings.ImageSearchHotkey.ToString());
         _tray.AddSeparator();
-        _tray.AddInfoItem(() => "Символов перевода за месяц:");
+        _tray.AddInfoItem(() => "Перевод:");
         foreach (string engine in _settings.TranslationEngines)
             _tray.AddInfoItem(() => "    " + UsageLine(engine));
         _tray.MenuOpening += () => _ = SyncDeepLUsageAsync();
@@ -172,8 +181,14 @@ public partial class App : Application
             return;
         }
 
-        // The previous card must not end up in the new screenshot.
-        _popup?.Close();
+        // The previous card must not end up in the new screenshot: close it and give the compositor a moment.
+        if (_popup is { IsClosed: false } previous)
+        {
+            previous.Close();
+            await Task.Delay(100);
+            if (_selector.IsActive) // the hotkey was pressed again during the pause
+                return;
+        }
         _popup = null;
 
         try
@@ -263,6 +278,12 @@ public partial class App : Application
             // Recognized text is still useful without a translation: it stays in the card for copying.
             AppLog.Error("Перевод не удался", ex);
             popup.ShowError("Перевод недоступен", ex.Message, text);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Never leave the card stuck on "Перевожу…".
+            AppLog.Error("Ошибка перевода", ex);
+            popup.ShowError("Ошибка", ex.Message, text);
         }
         finally
         {

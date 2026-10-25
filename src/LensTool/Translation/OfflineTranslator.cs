@@ -80,23 +80,27 @@ public sealed partial class OfflineTranslator(ModelStore store) : ITranslator, I
         return sb.ToString();
     }
 
+    /// <summary>
+    /// Shared load of a model. The download is not tied to the caller's token: closing the popup only stops
+    /// waiting, the model keeps downloading, and another caller never gets someone else's cancellation.
+    /// </summary>
     private Task<MarianModel> LoadAsync(OpusModel definition, CancellationToken ct)
     {
         lock (_sync)
         {
-            if (_models.TryGetValue(definition.Id, out var existing) && !existing.IsFaulted && !existing.IsCanceled)
-                return existing;
-
-            var task = Task.Run(async () =>
+            if (!_models.TryGetValue(definition.Id, out var task) || task.IsFaulted || task.IsCanceled)
             {
-                string folder = await store.EnsureAsync(definition, ct);
-                var sw = Stopwatch.StartNew();
-                var model = new MarianModel(folder);
-                AppLog.Info($"Модель {definition.Id} загружена за {sw.ElapsedMilliseconds} мс");
-                return model;
-            }, ct);
-            _models[definition.Id] = task;
-            return task;
+                task = Task.Run(async () =>
+                {
+                    string folder = await store.EnsureAsync(definition);
+                    var sw = Stopwatch.StartNew();
+                    var model = new MarianModel(folder);
+                    AppLog.Info($"Модель {definition.Id} загружена за {sw.ElapsedMilliseconds} мс");
+                    return model;
+                });
+                _models[definition.Id] = task;
+            }
+            return task.WaitAsync(ct);
         }
     }
 

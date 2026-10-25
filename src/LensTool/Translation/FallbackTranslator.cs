@@ -37,6 +37,12 @@ public sealed class FallbackTranslator(
                 AppLog.Info($"{engine.Name} не перевёл: {ex.Message}");
                 errors.Add(ex.Message);
             }
+            // Any other failure (malformed response, inference error) also means "try the next engine".
+            catch (Exception ex) when (ex is not OperationCanceledException && !cancellationToken.IsCancellationRequested)
+            {
+                AppLog.Error($"{engine.Name}: непредвиденная ошибка", ex);
+                errors.Add($"{engine.Name}: {ex.Message}");
+            }
         }
 
         throw new TranslationException(string.Join(Environment.NewLine, errors));

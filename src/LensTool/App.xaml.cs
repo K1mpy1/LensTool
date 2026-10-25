@@ -4,7 +4,9 @@ using System.Windows;
 using System.Windows.Threading;
 using LensTool.Capture;
 using LensTool.Ocr;
+using System.Net.Http;
 using LensTool.Settings;
+using LensTool.Translation;
 using LensTool.UI;
 
 namespace LensTool;
@@ -15,6 +17,8 @@ public partial class App : Application
 
     private readonly AppSettings _settings = new();
     private readonly RegionSelector _selector = new();
+    private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private readonly TranslationService _translation;
 
     private Mutex? _instanceMutex;
     private EventWaitHandle? _secondInstanceEvent;
@@ -22,6 +26,13 @@ public partial class App : Application
     private TrayIcon? _tray;
     private GlobalHotkeys? _hotkeys;
     private IOcrEngine? _ocr;
+
+    public App()
+    {
+        _translation = new TranslationService(
+            new DeepLTranslator(_http, DeepLTranslator.ReadApiKeyFromEnvironment),
+            _settings.TargetLanguage, _settings.FallbackTargetLanguage);
+    }
 
     protected override void OnStartup(StartupEventArgs e)
     {
@@ -97,7 +108,7 @@ public partial class App : Application
 
             if (mode == CaptureMode.Translate)
             {
-                await RecognizeAsync(result);
+                await TranslateCaptureAsync(result);
                 return;
             }
 
@@ -119,7 +130,7 @@ public partial class App : Application
         }
     }
 
-    private async Task RecognizeAsync(CaptureResult capture)
+    private async Task TranslateCaptureAsync(CaptureResult capture)
     {
         // The engine is created on first use, so the app still starts when no OCR languages are installed.
         _ocr ??= new WindowsOcrEngine(_settings.OcrLanguage);
@@ -130,8 +141,29 @@ public partial class App : Application
             return;
         }
 
-        // Until the translation overlay exists (stage 5), hand the text over via the clipboard.
-        string text = ocr.Text;
+        string text = OcrTextLayout.ToParagraphs(ocr.Lines);
+        TranslationResult translation;
+        try
+        {
+            translation = await _translation.TranslateAsync(text);
+        }
+        catch (TranslationException ex)
+        {
+            // Recognized text is still useful without a translation.
+            AppLog.Error("Перевод не удался", ex);
+            CopyToClipboard(text);
+            _tray?.ShowBalloon("Перевод недоступен — скопирован исходный текст", ex.Message, isError: true);
+            return;
+        }
+
+        // Until the translation overlay exists (stage 5), hand the result over via the clipboard.
+        CopyToClipboard(translation.Text);
+        _tray?.ShowBalloon($"Перевод {translation.DetectedSourceLanguage} → {translation.TargetLanguage} — скопирован",
+            Preview(translation.Text));
+    }
+
+    private static void CopyToClipboard(string text)
+    {
         try
         {
             Clipboard.SetText(text);
@@ -140,11 +172,10 @@ public partial class App : Application
         {
             AppLog.Error("Не удалось записать в буфер обмена", ex);
         }
-
-        const int previewLength = 200;
-        _tray?.ShowBalloon($"Распознано ({ocr.Language}) — скопировано",
-            text.Length > previewLength ? text[..previewLength] + "…" : text);
     }
+
+    private static string Preview(string text, int maxLength = 200) =>
+        text.Length > maxLength ? text[..maxLength] + "…" : text;
 
     private void OpenCaptureFolder()
     {
@@ -163,6 +194,7 @@ public partial class App : Application
     {
         _hotkeys?.Dispose();
         _tray?.Dispose();
+        _http.Dispose();
         _secondInstanceWait?.Unregister(null);
         _secondInstanceEvent?.Dispose();
         if (_instanceMutex is not null)

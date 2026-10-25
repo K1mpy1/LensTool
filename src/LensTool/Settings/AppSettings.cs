@@ -31,6 +31,12 @@ public sealed class AppSettings
     /// <summary>OCR language (BCP-47, e.g. "ru" or "en-US"); null = Windows profile languages.</summary>
     public string? OcrLanguage { get; init; }
 
+    /// <summary>Translation target language (DeepL code).</summary>
+    public string TargetLanguage { get; init; } = "RU";
+
+    /// <summary>Target for text that is already in <see cref="TargetLanguage"/>.</summary>
+    public string FallbackTargetLanguage { get; init; } = "EN-US";
+
     /// <summary>Folder where captured regions are saved.</summary>
     public string CaptureFolder { get; init; } = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.MyPictures), "LensTool");

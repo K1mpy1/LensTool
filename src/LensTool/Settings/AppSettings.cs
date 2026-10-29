@@ -49,12 +49,6 @@ public sealed class AppSettings
     /// <summary>Share of the free limit after which the next engine is used, to stay out of paid usage.</summary>
     public double SwitchEngineAtShare { get; init; } = 0.9;
 
-    /// <summary>
-    /// Reverse image search provider: "Yandex" (automatic upload, Google Lens if it fails)
-    /// or "Google" (image goes to the clipboard, the user pastes it into Google Lens).
-    /// </summary>
-    public string ImageSearchProvider { get; init; } = "Yandex";
-
     /// <summary>Also save every selected region as PNG into <see cref="CaptureFolder"/>.</summary>
     public bool SaveCaptures { get; init; }
 

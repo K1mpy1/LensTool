@@ -27,8 +27,7 @@ public partial class App : Application
     private readonly DeepLTranslator _deepl;
     private readonly Dictionary<string, (ITranslator Engine, Func<string?> Key, string KeyVariable)> _engines;
     private readonly TranslationService _translation;
-    private readonly GoogleLensSearch _googleLens = new(CopyImageToClipboard);
-    private readonly Dictionary<string, IImageSearchProvider> _imageSearch;
+    private readonly IImageSearchProvider _imageSearch = new GoogleLensSearch(CopyImageToClipboard);
 
     private Mutex? _instanceMutex;
     private EventWaitHandle? _secondInstanceEvent;
@@ -70,9 +69,6 @@ public partial class App : Application
             _settings.TranslationEngines.Select(name => _engines[name].Engine).ToList(),
             _usage, _settings.FreeCharactersPerMonth, _settings.SwitchEngineAtShare);
         _translation = new TranslationService(chain, _settings.TargetLanguage, _settings.FallbackTargetLanguage);
-
-        IImageSearchProvider[] searchProviders = [new YandexImageSearch(_http), _googleLens];
-        _imageSearch = searchProviders.ToDictionary(p => p.Name, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>"Google: 12 345 / 500 000 (2,5%)" or a hint that the key is missing.</summary>
@@ -307,21 +303,9 @@ public partial class App : Application
 
     private async Task SearchImageAsync(CaptureResult capture)
     {
-        var provider = _imageSearch.TryGetValue(_settings.ImageSearchProvider, out var configured) ? configured : _googleLens;
-        ImageSearchLaunch launch;
-        try
-        {
-            launch = await provider.PrepareAsync(capture.Image);
-        }
-        catch (ImageSearchException ex) when (provider != _googleLens)
-        {
-            // Google Lens needs no upload from the app (only the clipboard), so it is the fallback.
-            AppLog.Error($"{provider.Name}: поиск не удался, открываю Google Lens", ex);
-            launch = await _googleLens.PrepareAsync(capture.Image);
-            launch = launch with { Hint = $"{provider.Name}: {ex.Message} {launch.Hint}" };
-        }
+        var launch = await _imageSearch.PrepareAsync(capture.Image);
 
-        AppLog.Info($"Поиск по картинке ({provider.Name}): открываю {launch.Target}");
+        AppLog.Info($"Поиск по картинке ({_imageSearch.Name}): открываю {launch.Target}");
         Process.Start(new ProcessStartInfo(launch.Target) { UseShellExecute = true });
         if (launch.Hint is not null)
             _tray?.ShowBalloon("Поиск по картинке", launch.Hint);

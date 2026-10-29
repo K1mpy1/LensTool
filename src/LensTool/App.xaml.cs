@@ -317,7 +317,7 @@ public partial class App : Application
     {
         try
         {
-            Clipboard.SetImage(image);
+            ClipboardImage.Set(image);
         }
         catch (System.Runtime.InteropServices.ExternalException ex) // clipboard is locked by another app
         {

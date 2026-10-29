@@ -40,7 +40,11 @@ public sealed class GlobalHotkeys : IDisposable
             return false;
         }
 
-        _handlers[id] = handler;
+        _handlers[id] = () =>
+        {
+            AppLog.Info($"Нажата {gesture}");
+            handler();
+        };
         AppLog.Info($"Горячая клавиша {gesture} зарегистрирована");
         return true;
     }

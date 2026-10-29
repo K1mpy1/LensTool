@@ -27,7 +27,8 @@ public partial class App : Application
     private readonly DeepLTranslator _deepl;
     private readonly Dictionary<string, (ITranslator Engine, Func<string?> Key, string KeyVariable)> _engines;
     private readonly TranslationService _translation;
-    private readonly IImageSearchProvider _imageSearch = new GoogleLensSearch(CopyImageToClipboard);
+    private readonly HttpClient _lensHttp = GoogleLensSearch.CreateHttpClient();
+    private readonly IImageSearchProvider _imageSearch;
 
     private Mutex? _instanceMutex;
     private EventWaitHandle? _secondInstanceEvent;
@@ -69,6 +70,7 @@ public partial class App : Application
             _settings.TranslationEngines.Select(name => _engines[name].Engine).ToList(),
             _usage, _settings.FreeCharactersPerMonth, _settings.SwitchEngineAtShare);
         _translation = new TranslationService(chain, _settings.TargetLanguage, _settings.FallbackTargetLanguage);
+        _imageSearch = new GoogleLensSearch(_lensHttp, CopyImageToClipboard);
     }
 
     /// <summary>"Google: 12 345 / 500 000 (2,5%)" or a hint that the key is missing.</summary>
@@ -341,6 +343,7 @@ public partial class App : Application
         _hotkeys?.Dispose();
         _tray?.Dispose();
         _http.Dispose();
+        _lensHttp.Dispose();
         _offline.Dispose();
         _modelHttp.Dispose();
         _secondInstanceWait?.Unregister(null);

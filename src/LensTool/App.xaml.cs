@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Threading;
 using LensTool.Capture;
+using LensTool.ImageSearch;
 using LensTool.Ocr;
 using System.Net.Http;
 using LensTool.Settings;
@@ -26,6 +27,8 @@ public partial class App : Application
     private readonly DeepLTranslator _deepl;
     private readonly Dictionary<string, (ITranslator Engine, Func<string?> Key, string KeyVariable)> _engines;
     private readonly TranslationService _translation;
+    private readonly GoogleLensSearch _googleLens = new(CopyImageToClipboard);
+    private readonly Dictionary<string, IImageSearchProvider> _imageSearch;
 
     private Mutex? _instanceMutex;
     private EventWaitHandle? _secondInstanceEvent;
@@ -67,6 +70,9 @@ public partial class App : Application
             _settings.TranslationEngines.Select(name => _engines[name].Engine).ToList(),
             _usage, _settings.FreeCharactersPerMonth, _settings.SwitchEngineAtShare);
         _translation = new TranslationService(chain, _settings.TargetLanguage, _settings.FallbackTargetLanguage);
+
+        IImageSearchProvider[] searchProviders = [new YandexImageSearch(_http), _googleLens];
+        _imageSearch = searchProviders.ToDictionary(p => p.Name, StringComparer.OrdinalIgnoreCase);
     }
 
     /// <summary>"Google: 12 345 / 500 000 (2,5%)" or a hint that the key is missing.</summary>
@@ -149,8 +155,11 @@ public partial class App : Application
             _tray.AddInfoItem(() => "    " + UsageLine(engine));
         _tray.MenuOpening += () => _ = SyncDeepLUsageAsync();
         _tray.AddSeparator();
-        _tray.AddMenuItem("Открыть папку снимков", OpenCaptureFolder);
-        _tray.AddSeparator();
+        if (_settings.SaveCaptures)
+        {
+            _tray.AddMenuItem("Открыть папку снимков", OpenCaptureFolder);
+            _tray.AddSeparator();
+        }
         _tray.AddMenuItem("Выход", Shutdown);
 
         UpdateUsageDisplay();
@@ -204,17 +213,21 @@ public partial class App : Application
                 return;
             }
 
-            if (mode == CaptureMode.Translate)
+            if (_settings.SaveCaptures)
             {
-                await TranslateCaptureAsync(result);
-                return;
+                string path = CaptureStorage.SavePng(result.Image, _settings.CaptureFolder, mode);
+                AppLog.Info($"Снимок сохранён: {path}");
             }
 
-            // Image search is stage 6; for now just save the capture.
-            string path = CaptureStorage.SavePng(result.Image, _settings.CaptureFolder, mode);
-            AppLog.Info($"Снимок сохранён: {path}");
-            _tray?.ShowBalloon("Снимок сохранён", $"{result.Bounds.Width}×{result.Bounds.Height} px\n{path}",
-                onClick: () => Process.Start("explorer.exe", $"/select,\"{path}\""));
+            if (mode == CaptureMode.Translate)
+                await TranslateCaptureAsync(result);
+            else
+                await SearchImageAsync(result);
+        }
+        catch (ImageSearchException ex)
+        {
+            AppLog.Error("Поиск по картинке не удался", ex);
+            _tray?.ShowBalloon("Поиск по картинке не удался", ex.Message, isError: true);
         }
         catch (OcrUnavailableException ex)
         {
@@ -289,6 +302,40 @@ public partial class App : Application
         {
             // The token source is disposed when this method returns; a later close must not touch it.
             popup.Closed -= onClosed;
+        }
+    }
+
+    private async Task SearchImageAsync(CaptureResult capture)
+    {
+        var provider = _imageSearch.TryGetValue(_settings.ImageSearchProvider, out var configured) ? configured : _googleLens;
+        ImageSearchLaunch launch;
+        try
+        {
+            launch = await provider.PrepareAsync(capture.Image);
+        }
+        catch (ImageSearchException ex) when (provider != _googleLens)
+        {
+            // Google Lens needs no upload from the app (only the clipboard), so it is the fallback.
+            AppLog.Error($"{provider.Name}: поиск не удался, открываю Google Lens", ex);
+            launch = await _googleLens.PrepareAsync(capture.Image);
+            launch = launch with { Hint = $"{provider.Name}: {ex.Message} {launch.Hint}" };
+        }
+
+        AppLog.Info($"Поиск по картинке ({provider.Name}): открываю {launch.Target}");
+        Process.Start(new ProcessStartInfo(launch.Target) { UseShellExecute = true });
+        if (launch.Hint is not null)
+            _tray?.ShowBalloon("Поиск по картинке", launch.Hint);
+    }
+
+    private static void CopyImageToClipboard(System.Windows.Media.Imaging.BitmapSource image)
+    {
+        try
+        {
+            Clipboard.SetImage(image);
+        }
+        catch (System.Runtime.InteropServices.ExternalException ex) // clipboard is locked by another app
+        {
+            throw new ImageSearchException("Не удалось скопировать картинку в буфер обмена.", ex);
         }
     }
 

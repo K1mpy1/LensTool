@@ -12,8 +12,9 @@ namespace LensTool.ImageSearch;
 /// <summary>
 /// Google Lens. The app uploads the image itself and opens the results page in the browser.
 /// In the EU Google first redirects to its cookie consent page; the app answers it with
-/// "Accept all" (the user's choice) and retries. If anything goes wrong, the image is put on the
-/// clipboard and Google opens with the Lens upload dialog, so the user can paste it with Ctrl+V.
+/// "Accept all" (the user's choice) and retries. The image is always put on the clipboard as well,
+/// so it can be pasted anywhere; if the upload fails, Google opens with the Lens upload dialog instead
+/// and the user pastes it there with Ctrl+V.
 /// </summary>
 /// <param name="http">A client without automatic redirects and with a cookie container (see <see cref="CreateHttpClient"/>).</param>
 public sealed partial class GoogleLensSearch(HttpClient http, Action<BitmapSource> copyToClipboard) : IImageSearchProvider
@@ -40,6 +41,8 @@ public sealed partial class GoogleLensSearch(HttpClient http, Action<BitmapSourc
 
     public async Task<ImageSearchLaunch> PrepareAsync(BitmapSource image, CancellationToken cancellationToken = default)
     {
+        // On the clipboard first: works even if the upload fails, and the user can paste it elsewhere.
+        bool copied = TryCopyToClipboard(image);
         try
         {
             byte[] jpeg = await Task.Run(() => ToJpeg(image), cancellationToken);
@@ -48,10 +51,27 @@ public sealed partial class GoogleLensSearch(HttpClient http, Action<BitmapSourc
         catch (Exception ex) when (ex is ImageSearchException or HttpRequestException
                                        || ex is TaskCanceledException && !cancellationToken.IsCancellationRequested)
         {
-            AppLog.Error("Google Lens: загрузка не удалась, открываю окно вставки", ex);
-            copyToClipboard(image);
             string reason = ex is ImageSearchException ? ex.Message : "Нет связи с Google.";
-            return new ImageSearchLaunch(LensDialogUrl, $"{reason} Картинка скопирована — вставьте её в Google Lens: Ctrl+V.");
+            if (!copied)
+                throw new ImageSearchException($"{reason} Скопировать картинку в буфер обмена тоже не удалось.", ex);
+
+            AppLog.Error("Google Lens: загрузка не удалась, открываю окно вставки", ex);
+            return new ImageSearchLaunch(LensDialogUrl, $"{reason} Картинка в буфере обмена — вставьте её в Google Lens: Ctrl+V.");
+        }
+    }
+
+    private bool TryCopyToClipboard(BitmapSource image)
+    {
+        try
+        {
+            copyToClipboard(image);
+            AppLog.Info($"Картинка {image.PixelWidth}x{image.PixelHeight} скопирована в буфер обмена");
+            return true;
+        }
+        catch (ImageSearchException ex)
+        {
+            AppLog.Error("Не удалось скопировать картинку в буфер обмена", ex);
+            return false;
         }
     }
 

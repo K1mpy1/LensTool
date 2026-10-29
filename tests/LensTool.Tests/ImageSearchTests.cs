@@ -34,12 +34,13 @@ public class ImageSearchTests
     {
         var handler = new QueueHandler(Redirect(HttpStatusCode.SeeOther, ResultsUrl));
         BitmapSource? copied = null;
+        var image = SolidImage(300, 200);
 
-        var launch = await new GoogleLensSearch(new HttpClient(handler), img => copied = img).PrepareAsync(SolidImage(300, 200));
+        var launch = await new GoogleLensSearch(new HttpClient(handler), img => copied = img).PrepareAsync(image);
 
         Assert.Equal(ResultsUrl, launch.Target);
         Assert.Null(launch.Hint);
-        Assert.Null(copied);
+        Assert.Same(image, copied); // also on the clipboard, for pasting elsewhere
         var upload = Assert.Single(handler.Requests);
         Assert.Equal(HttpMethod.Post, upload.Method);
         Assert.StartsWith("https://lens.google.com/v3/upload?", upload.Uri);
@@ -95,6 +96,28 @@ public class ImageSearchTests
         Assert.NotNull(copied);
         Assert.Equal(GoogleLensSearch.LensDialogUrl, launch.Target);
         Assert.Contains("Нет связи", launch.Hint);
+    }
+
+    [Fact]
+    public async Task ClipboardFailureDoesNotBlockUpload()
+    {
+        var handler = new QueueHandler(Redirect(HttpStatusCode.SeeOther, ResultsUrl));
+        var search = new GoogleLensSearch(new HttpClient(handler), _ => throw new ImageSearchException("буфер занят"));
+
+        var launch = await search.PrepareAsync(SolidImage(10, 10));
+
+        Assert.Equal(ResultsUrl, launch.Target);
+    }
+
+    [Fact]
+    public async Task UploadAndClipboardBothFailingIsReported()
+    {
+        var search = new GoogleLensSearch(new HttpClient(new QueueHandler(new HttpResponseMessage(HttpStatusCode.OK))),
+            _ => throw new ImageSearchException("буфер занят"));
+
+        var ex = await Assert.ThrowsAsync<ImageSearchException>(() => search.PrepareAsync(SolidImage(10, 10)));
+
+        Assert.Contains("буфер обмена", ex.Message);
     }
 
     [Fact]

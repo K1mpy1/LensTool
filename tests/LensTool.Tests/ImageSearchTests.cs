@@ -48,7 +48,7 @@ public class ImageSearchTests
     }
 
     [Fact]
-    public async Task ConsentPageIsAnsweredWithRejectAllAndUploadIsRetried()
+    public async Task ConsentPageIsAnsweredWithAcceptAllAndUploadIsRetried()
     {
         var handler = new QueueHandler(
             Redirect(HttpStatusCode.Found, ConsentUrl),
@@ -61,8 +61,10 @@ public class ImageSearchTests
         Assert.Equal(ResultsUrl, launch.Target);
         Assert.Equal(["POST upload", "GET consent", "POST save", "POST upload"], handler.Requests.Select(r => r.Summary));
         string consent = handler.Requests[2].Body!;
-        Assert.Contains("set_eom=true", consent);
-        Assert.DoesNotContain("set_sc", consent);
+        Assert.Contains("set_sc=true", consent);
+        Assert.Contains("set_aps=true", consent);
+        Assert.Contains("set_eom=false", consent);
+        Assert.DoesNotContain("set_eom=true", consent);
         Assert.Contains("escs=AUjHK", consent);
     }
 
@@ -111,18 +113,34 @@ public class ImageSearchTests
     }
 
     [Fact]
-    public void RejectFormIsPickedAndDecoded()
+    public void AcceptFormIsPicked()
     {
-        var fields = GoogleLensSearch.ParseRejectForm(ConsentPage)!;
+        var fields = GoogleLensSearch.ParseAcceptForm(ConsentPage)!;
 
-        Assert.Contains(KeyValuePair.Create("set_eom", "true"), fields);
-        Assert.Contains(KeyValuePair.Create("continue", "https://lens.google.com/v3/upload?hl=ru&re=df"), fields);
-        Assert.DoesNotContain(fields, f => f.Key == "set_sc");
+        Assert.Contains(KeyValuePair.Create("set_sc", "true"), fields);
+        Assert.Contains(KeyValuePair.Create("set_aps", "true"), fields);
+        Assert.Contains(KeyValuePair.Create("set_eom", "false"), fields);
+        Assert.Contains(KeyValuePair.Create("escs", "AUjHK"), fields);
     }
 
     [Fact]
-    public void NoRejectFormGivesNull() =>
-        Assert.Null(GoogleLensSearch.ParseRejectForm("<html><form action=\"https://example.com\"></form></html>"));
+    public void HtmlEntitiesInFieldsAreDecoded()
+    {
+        const string page = """
+            <form action="https://consent.google.com/save" method="POST">
+            <input type="hidden" name="continue" value="https://lens.google.com/v3/upload?hl=ru&amp;re=df">
+            <input type="hidden" name="set_sc" value="true"><input type="hidden" name="set_aps" value="true">
+            <input type="hidden" name="set_eom" value="false"></form>
+            """;
+
+        var fields = GoogleLensSearch.ParseAcceptForm(page)!;
+
+        Assert.Contains(KeyValuePair.Create("continue", "https://lens.google.com/v3/upload?hl=ru&re=df"), fields);
+    }
+
+    [Fact]
+    public void NoAcceptFormGivesNull() =>
+        Assert.Null(GoogleLensSearch.ParseAcceptForm("<html><form action=\"https://example.com\"></form></html>"));
 
     [Theory]
     [InlineData(ResultsUrl, true)]

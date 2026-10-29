@@ -12,7 +12,7 @@ namespace LensTool.ImageSearch;
 /// <summary>
 /// Google Lens. The app uploads the image itself and opens the results page in the browser.
 /// In the EU Google first redirects to its cookie consent page; the app answers it with
-/// "Reject all" (the user's choice) and retries. If anything goes wrong, the image is put on the
+/// "Accept all" (the user's choice) and retries. If anything goes wrong, the image is put on the
 /// clipboard and Google opens with the Lens upload dialog, so the user can paste it with Ctrl+V.
 /// </summary>
 /// <param name="http">A client without automatic redirects and with a cookie container (see <see cref="CreateHttpClient"/>).</param>
@@ -70,7 +70,7 @@ public sealed partial class GoogleLensSearch(HttpClient http, Action<BitmapSourc
                     return location;
                 if (attempt == 0 && new Uri(location).Host == "consent.google.com")
                 {
-                    await RejectConsentAsync(location, ct);
+                    await AcceptConsentAsync(location, ct);
                     continue;
                 }
             }
@@ -93,17 +93,17 @@ public sealed partial class GoogleLensSearch(HttpClient http, Action<BitmapSourc
         return http.SendAsync(request, ct);
     }
 
-    /// <summary>Opens the consent page and submits its "Reject all" form; the cookie lands in the client's container.</summary>
-    private async Task RejectConsentAsync(string consentUrl, CancellationToken ct)
+    /// <summary>Opens the consent page and submits its "Accept all" form; the cookie lands in the client's container.</summary>
+    private async Task AcceptConsentAsync(string consentUrl, CancellationToken ct)
     {
         string html = await GetFollowingRedirectsAsync(consentUrl, ct);
-        var fields = ParseRejectForm(html)
+        var fields = ParseAcceptForm(html)
             ?? throw new ImageSearchException("Не удалось разобрать окно согласия Google.");
 
         using var response = await http.PostAsync(ConsentSaveUrl, new FormUrlEncodedContent(fields), ct);
-        AppLog.Info($"Google: согласие на cookies — «Отклонить все», HTTP {(int)response.StatusCode}");
+        AppLog.Info($"Google: согласие на cookies — «Принять все», HTTP {(int)response.StatusCode}");
         if (!IsRedirect(response.StatusCode) && !response.IsSuccessStatusCode)
-            throw new ImageSearchException($"Google не принял отказ от cookies (HTTP {(int)response.StatusCode}).");
+            throw new ImageSearchException($"Google не принял согласие на cookies (HTTP {(int)response.StatusCode}).");
     }
 
     private async Task<string> GetFollowingRedirectsAsync(string url, CancellationToken ct)
@@ -122,18 +122,20 @@ public sealed partial class GoogleLensSearch(HttpClient http, Action<BitmapSourc
     }
 
     /// <summary>
-    /// Hidden fields of the "Reject all" form on consent.google.com: it posts to /save with set_eom=true
-    /// ("essential only"), while "Accept all" carries set_sc/set_aps. Null if no such form is found.
+    /// Hidden fields of the "Accept all" form on consent.google.com: it posts to /save with set_sc=true,
+    /// set_aps=true and set_eom=false, while "Reject all" carries only set_eom=true. Null if no such form is found.
     /// </summary>
-    public static IReadOnlyList<KeyValuePair<string, string>>? ParseRejectForm(string html)
+    public static IReadOnlyList<KeyValuePair<string, string>>? ParseAcceptForm(string html)
     {
         foreach (Match form in ConsentForm().Matches(html))
         {
             var fields = HiddenInput().Matches(form.Groups["body"].Value)
                 .Select(m => KeyValuePair.Create(WebUtility.HtmlDecode(m.Groups["name"].Value), WebUtility.HtmlDecode(m.Groups["value"].Value)))
                 .ToList();
-            bool rejectsAll = fields.Any(f => f is { Key: "set_eom", Value: "true" }) && fields.All(f => f.Key != "set_sc");
-            if (rejectsAll)
+            bool acceptsAll = fields.Any(f => f is { Key: "set_sc", Value: "true" })
+                              && fields.Any(f => f is { Key: "set_aps", Value: "true" })
+                              && fields.Any(f => f is { Key: "set_eom", Value: "false" });
+            if (acceptsAll)
                 return fields;
         }
         return null;

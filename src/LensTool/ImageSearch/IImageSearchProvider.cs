@@ -13,8 +13,8 @@ public interface IImageSearchProvider
 }
 
 /// <param name="Target">URL to open in the default browser.</param>
-/// <param name="Hint">What the user still has to do in the browser, if anything.</param>
-public sealed record ImageSearchLaunch(string Target, string? Hint = null);
+/// <param name="PasteIntoBrowser">The image is on the clipboard and should be pasted into the opened page.</param>
+public sealed record ImageSearchLaunch(string Target, bool PasteIntoBrowser = false);
 
 /// <summary>The search could not be prepared; <see cref="Exception.Message"/> is shown to the user.</summary>
 public sealed class ImageSearchException(string message, Exception? inner = null) : Exception(message, inner);
